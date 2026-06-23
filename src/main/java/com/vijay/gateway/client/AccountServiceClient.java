@@ -1,6 +1,7 @@
 package com.vijay.gateway.client;
 
 import com.vijay.gateway.trace.TraceConstants;
+import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -16,10 +17,14 @@ import java.time.Duration;
 @Component
 public class AccountServiceClient {
 
+	private static final String CIRCUIT_BREAKER_NAME = "accountService";
+
 	private final RestClient restClient;
+	private final CircuitBreakerFactory<?, ?> circuitBreakerFactory;
 
 	public AccountServiceClient(
 			RestClient.Builder restClientBuilder,
+			CircuitBreakerFactory<?, ?> circuitBreakerFactory,
 			@Value("${account-service.base-url}") String baseUrl,
 			@Value("${account-service.connect-timeout:2s}") Duration connectTimeout,
 			@Value("${account-service.read-timeout:3s}") Duration readTimeout
@@ -32,9 +37,29 @@ public class AccountServiceClient {
 				.baseUrl(baseUrl)
 				.requestFactory(requestFactory)
 				.build();
+		this.circuitBreakerFactory = circuitBreakerFactory;
 	}
 
 	public void postTransaction(String accountId, AccountTransactionRequest request) {
+		circuitBreakerFactory.create(CIRCUIT_BREAKER_NAME).run(
+				() -> {
+					postTransactionInternal(accountId, request);
+					return null;
+				},
+				throwable -> {
+					if (throwable instanceof AccountServiceUnavailableException unavailableException) {
+						throw unavailableException;
+					}
+					if (throwable instanceof RestClientResponseException responseException
+							&& !responseException.getStatusCode().is5xxServerError()) {
+						throw responseException;
+					}
+					throw unavailable("Account Service is unavailable", throwable);
+				}
+		);
+	}
+
+	private void postTransactionInternal(String accountId, AccountTransactionRequest request) {
 		try {
 			restClient.post()
 					.uri("/accounts/{accountId}/transactions", accountId)

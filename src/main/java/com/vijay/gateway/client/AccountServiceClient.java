@@ -41,9 +41,10 @@ public class AccountServiceClient {
 	}
 
 	public void postTransaction(String accountId, AccountTransactionRequest request) {
+		String traceId = currentTraceId();
 		circuitBreakerFactory.create(CIRCUIT_BREAKER_NAME).run(
 				() -> {
-					postTransactionInternal(accountId, request);
+					postTransactionInternal(accountId, request, traceId);
 					return null;
 				},
 				throwable -> {
@@ -59,12 +60,11 @@ public class AccountServiceClient {
 		);
 	}
 
-	private void postTransactionInternal(String accountId, AccountTransactionRequest request) {
+	private void postTransactionInternal(String accountId, AccountTransactionRequest request, String traceId) {
 		try {
 			restClient.post()
 					.uri("/accounts/{accountId}/transactions", accountId)
 					.headers(headers -> {
-						String traceId = currentTraceId();
 						if (StringUtils.hasText(traceId)) {
 							headers.set(TraceConstants.X_TRACE_ID, traceId);
 						}

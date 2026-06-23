@@ -8,6 +8,7 @@ import jakarta.validation.ConstraintViolationException;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -38,7 +39,16 @@ public class GlobalExceptionHandler {
 				.stream()
 				.map(error -> error.getField() + " " + error.getDefaultMessage())
 				.collect(Collectors.joining("; "));
+		if (message.isBlank()) {
+			message = "Request validation failed";
+		}
 		return errorResponse(status, message);
+	}
+
+	@ExceptionHandler(HttpMessageNotReadableException.class)
+	public ResponseEntity<ErrorResponse> handleHttpMessageNotReadable(HttpMessageNotReadableException ex) {
+		HttpStatus status = HttpStatus.BAD_REQUEST;
+		return errorResponse(status, "Request body is missing or malformed");
 	}
 
 	@ExceptionHandler(ConstraintViolationException.class)
@@ -48,7 +58,16 @@ public class GlobalExceptionHandler {
 				.stream()
 				.map(violation -> violation.getPropertyPath() + " " + violation.getMessage())
 				.collect(Collectors.joining("; "));
+		if (message.isBlank()) {
+			message = "Request validation failed";
+		}
 		return errorResponse(status, message);
+	}
+
+	@ExceptionHandler(Exception.class)
+	public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
+		HttpStatus status = HttpStatus.INTERNAL_SERVER_ERROR;
+		return errorResponse(status, "Unexpected server error");
 	}
 
 	private static ResponseEntity<ErrorResponse> errorResponse(HttpStatus status, String message) {

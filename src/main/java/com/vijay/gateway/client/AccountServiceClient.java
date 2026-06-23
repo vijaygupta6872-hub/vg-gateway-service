@@ -15,6 +15,18 @@ import org.springframework.web.client.RestClientResponseException;
 
 import java.time.Duration;
 
+/**
+ * HTTP client for the downstream Account Service transaction API.
+ * <p>
+ * The Gateway uses this client to apply new events to an account before
+ * persisting them locally. Calls are protected by the {@code accountService}
+ * circuit breaker and include the current {@code X-Trace-Id} value when one is
+ * available in the logging MDC. Transport failures, timeouts, open circuit
+ * failures, and downstream {@code 5xx} responses are normalized to
+ * {@link AccountServiceUnavailableException} so the API layer can return a
+ * consistent {@code 503 Service Unavailable} response.
+ * </p>
+ */
 @Component
 public class AccountServiceClient {
 
@@ -23,6 +35,19 @@ public class AccountServiceClient {
 	private final RestClient restClient;
 	private final CircuitBreakerFactory<?, ?> circuitBreakerFactory;
 
+	/**
+	 * Creates a client configured from application properties.
+	 *
+	 * @param restClientBuilder Spring-managed builder used to create the underlying
+	 *                          {@link RestClient}
+	 * @param circuitBreakerFactory factory used to create the {@code accountService}
+	 *                              circuit breaker
+	 * @param baseUrl base URL of Account Service
+	 * @param connectTimeout maximum time allowed to establish the HTTP connection
+	 * @param readTimeout maximum time allowed to wait for the HTTP response
+	 * @throws ArithmeticException if a configured timeout cannot be represented as
+	 *         an {@code int} millisecond value
+	 */
 	public AccountServiceClient(
 			RestClient.Builder restClientBuilder,
 			CircuitBreakerFactory<?, ?> circuitBreakerFactory,
@@ -41,6 +66,22 @@ public class AccountServiceClient {
 		this.circuitBreakerFactory = circuitBreakerFactory;
 	}
 
+	/**
+	 * Posts an account transaction for a Gateway event.
+	 * <p>
+	 * The current trace identifier is captured before entering the circuit breaker
+	 * so it can be propagated even if the circuit breaker changes execution
+	 * context.
+	 * </p>
+	 *
+	 * @param accountId account identifier used in the Account Service URL path
+	 * @param request transaction payload derived from the Gateway event request
+	 * @throws AccountServiceUnavailableException if Account Service cannot be
+	 *         reached, times out, returns a {@code 5xx} response, or the circuit
+	 *         breaker is open
+	 * @throws RestClientResponseException if Account Service returns a non-5xx HTTP
+	 *         error response
+	 */
 	public void postTransaction(String accountId, AccountTransactionRequest request) {
 		String traceId = currentTraceId();
 		circuitBreakerFactory.create(CIRCUIT_BREAKER_NAME).run(
@@ -61,6 +102,18 @@ public class AccountServiceClient {
 		);
 	}
 
+	/**
+	 * Executes the actual HTTP POST to Account Service.
+	 *
+	 * @param accountId account identifier used to expand the transaction URL
+	 * @param request transaction payload to serialize as JSON
+	 * @param traceId trace identifier to propagate through the {@code X-Trace-Id}
+	 *                request header; may be {@code null} or blank
+	 * @throws AccountServiceUnavailableException if a transport failure, timeout,
+	 *         or Account Service {@code 5xx} response occurs
+	 * @throws RestClientResponseException if Account Service returns a non-5xx HTTP
+	 *         error response
+	 */
 	private void postTransactionInternal(String accountId, AccountTransactionRequest request, String traceId) {
 		try {
 			restClient.post()
@@ -85,14 +138,35 @@ public class AccountServiceClient {
 		}
 	}
 
+	/**
+	 * Returns the trace identifier currently stored in MDC.
+	 *
+	 * @return trace identifier associated with the current request, or {@code null}
+	 *         if no request trace is active
+	 */
 	private static String currentTraceId() {
 		return MDC.get(TraceConstants.MDC_TRACE_ID);
 	}
 
+	/**
+	 * Creates the normalized exception used for unavailable Account Service states.
+	 *
+	 * @param message business-readable failure message
+	 * @param cause original exception that caused the unavailable state
+	 * @return exception to propagate to the service/API layer
+	 */
 	private static AccountServiceUnavailableException unavailable(String message, Throwable cause) {
 		return new AccountServiceUnavailableException(message, cause);
 	}
 
+	/**
+	 * Converts a timeout duration to milliseconds for the request factory.
+	 *
+	 * @param timeout configured timeout duration
+	 * @return timeout value in milliseconds
+	 * @throws ArithmeticException if the duration exceeds the supported
+	 *         {@code int} millisecond range
+	 */
 	private static int timeoutMillis(Duration timeout) {
 		return Math.toIntExact(timeout.toMillis());
 	}

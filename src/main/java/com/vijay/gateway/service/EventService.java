@@ -4,12 +4,15 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vijay.gateway.client.AccountServiceClient;
+import com.vijay.gateway.client.AccountServiceUnavailableException;
 import com.vijay.gateway.client.AccountTransactionRequest;
 import com.vijay.gateway.domain.EventRecord;
 import com.vijay.gateway.domain.EventStatus;
 import com.vijay.gateway.dto.CreateEventRequest;
 import com.vijay.gateway.dto.EventResponse;
 import com.vijay.gateway.repository.EventRecordRepository;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -29,22 +32,32 @@ public class EventService {
 	private final AccountServiceClient accountServiceClient;
 	private final ObjectMapper objectMapper;
 	private final Clock clock;
+	private final Counter acceptedEventsCounter;
+	private final Counter duplicateEventsCounter;
+	private final Counter accountServiceFailuresCounter;
 
 	public EventService(
 			EventRecordRepository eventRecordRepository,
 			AccountServiceClient accountServiceClient,
-			ObjectMapper objectMapper
+			ObjectMapper objectMapper,
+			MeterRegistry meterRegistry
 	) {
 		this.eventRecordRepository = eventRecordRepository;
 		this.accountServiceClient = accountServiceClient;
 		this.objectMapper = objectMapper;
 		this.clock = Clock.systemUTC();
+		this.acceptedEventsCounter = meterRegistry.counter("gateway.events.accepted");
+		this.duplicateEventsCounter = meterRegistry.counter("gateway.events.duplicates");
+		this.accountServiceFailuresCounter = meterRegistry.counter("gateway.events.account_service_failures");
 	}
 
 	@Transactional
 	public EventServiceResult createEvent(CreateEventRequest request) {
 		return eventRecordRepository.findByEventId(request.eventId())
-				.map(existing -> new EventServiceResult(toResponse(existing), true))
+				.map(existing -> {
+					duplicateEventsCounter.increment();
+					return new EventServiceResult(toResponse(existing), true);
+				})
 				.orElseGet(() -> createNewEvent(request));
 	}
 
@@ -73,7 +86,12 @@ public class EventService {
 				request.metadata()
 		);
 
-		accountServiceClient.postTransaction(request.accountId(), transactionRequest);
+		try {
+			accountServiceClient.postTransaction(request.accountId(), transactionRequest);
+		} catch (AccountServiceUnavailableException ex) {
+			accountServiceFailuresCounter.increment();
+			throw ex;
+		}
 
 		EventRecord record = new EventRecord();
 		record.setEventId(request.eventId());
@@ -87,6 +105,7 @@ public class EventService {
 		record.setCreatedAt(Instant.now(clock));
 
 		EventRecord saved = eventRecordRepository.save(record);
+		acceptedEventsCounter.increment();
 		return new EventServiceResult(toResponse(saved), false);
 	}
 

@@ -1,6 +1,7 @@
 package com.vijay.gateway.client;
 
 import com.vijay.gateway.trace.TraceConstants;
+import com.vijay.gateway.exception.AccountServiceUnavailableException;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;

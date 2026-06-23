@@ -1,7 +1,7 @@
 package com.vijay.gateway;
 
 import com.vijay.gateway.client.AccountServiceClient;
-import com.vijay.gateway.client.AccountServiceUnavailableException;
+import com.vijay.gateway.exception.AccountServiceUnavailableException;
 import com.vijay.gateway.repository.EventRecordRepository;
 import com.vijay.gateway.trace.TraceConstants;
 import org.junit.jupiter.api.BeforeEach;

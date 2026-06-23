@@ -1,4 +1,4 @@
-package com.vijay.gateway.service;
+package com.vijay.gateway.exception;
 
 public class EventNotFoundException extends RuntimeException {
 

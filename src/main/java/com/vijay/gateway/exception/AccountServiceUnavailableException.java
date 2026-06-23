@@ -1,4 +1,4 @@
-package com.vijay.gateway.client;
+package com.vijay.gateway.exception;
 
 public class AccountServiceUnavailableException extends RuntimeException {
 

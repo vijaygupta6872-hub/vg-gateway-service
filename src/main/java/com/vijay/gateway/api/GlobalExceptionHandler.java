@@ -1,8 +1,8 @@
 package com.vijay.gateway.api;
 
-import com.vijay.gateway.client.AccountServiceUnavailableException;
 import com.vijay.gateway.dto.ErrorResponse;
-import com.vijay.gateway.service.EventNotFoundException;
+import com.vijay.gateway.exception.AccountServiceUnavailableException;
+import com.vijay.gateway.exception.EventNotFoundException;
 import com.vijay.gateway.trace.TraceConstants;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.MDC;
